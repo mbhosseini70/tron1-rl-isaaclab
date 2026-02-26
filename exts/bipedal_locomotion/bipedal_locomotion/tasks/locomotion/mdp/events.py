@@ -17,6 +17,54 @@ def prepare_quantity_for_tron(
     asset: Articulation = env.scene[asset_cfg.name]
     env._foot_radius = foot_radius
 
+#sixth modification, remove this fucntion and define it again
+# def apply_external_force_torque_stochastic(
+#     env: ManagerBasedEnv,
+#     env_ids: torch.Tensor,
+#     force_range: dict[str, tuple[float, float]],
+#     torque_range: dict[str, tuple[float, float]],
+#     probability: float,
+#     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+# ):
+#     """Randomize the external forces and torques applied to the bodies.
+
+#     This function creates a set of random forces and torques sampled from the given ranges. The number of forces
+#     and torques is equal to the number of bodies times the number of environments. The forces and torques are
+#     applied to the bodies by calling ``asset.set_external_force_and_torque``. The forces and torques are only
+#     applied when ``asset.write_data_to_sim()`` is called in the environment.
+#     """
+#     # extract the used quantities (to enable type-hinting)
+#     asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+#     # clear the existing forces and torques
+#     asset._external_force_b *= 0
+#     asset._external_torque_b *= 0
+
+#     # resolve environment ids
+#     if env_ids is None:
+#         env_ids = torch.arange(env.scene.num_envs, device=asset.device)
+
+#     random_values = torch.rand(env_ids.shape, device=env_ids.device)
+#     mask = random_values < probability
+#     masked_env_ids = env_ids[mask]
+
+#     if len(masked_env_ids) == 0:
+#         return
+
+#     # resolve number of bodies
+#     num_bodies = len(asset_cfg.body_ids) if isinstance(asset_cfg.body_ids, list) else asset.num_bodies
+
+#     # sample random forces and torques
+#     size = (len(masked_env_ids), num_bodies, 3)
+#     force_range_list = [force_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
+#     force_range = torch.tensor(force_range_list, device=asset.device)
+#     forces = math_utils.sample_uniform(force_range[:, 0], force_range[:, 1], size, asset.device)
+#     torque_range_list = [torque_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
+#     torque_range = torch.tensor(torque_range_list, device=asset.device)
+#     torques = math_utils.sample_uniform(torque_range[:, 0], torque_range[:, 1], size, asset.device)
+#     # set the forces and torques into the buffers
+#     # note: these are only applied when you call: `asset.write_data_to_sim()`
+#     asset.set_external_force_and_torque(forces, torques, env_ids=masked_env_ids, body_ids=asset_cfg.body_ids)
+
 def apply_external_force_torque_stochastic(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
@@ -25,45 +73,160 @@ def apply_external_force_torque_stochastic(
     probability: float,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ):
-    """Randomize the external forces and torques applied to the bodies.
+    """Randomize external forces and torques on bodies."""
 
-    This function creates a set of random forces and torques sampled from the given ranges. The number of forces
-    and torques is equal to the number of bodies times the number of environments. The forces and torques are
-    applied to the bodies by calling ``asset.set_external_force_and_torque``. The forces and torques are only
-    applied when ``asset.write_data_to_sim()`` is called in the environment.
-    """
-    # extract the used quantities (to enable type-hinting)
     asset: RigidObject | Articulation = env.scene[asset_cfg.name]
-    # clear the existing forces and torques
-    asset._external_force_b *= 0
-    asset._external_torque_b *= 0
 
-    # resolve environment ids
+    # 1. Determine which environment instances get a push
     if env_ids is None:
         env_ids = torch.arange(env.scene.num_envs, device=asset.device)
 
-    random_values = torch.rand(env_ids.shape, device=env_ids.device)
+    random_values = torch.rand(env_ids.shape, device=asset.device)
     mask = random_values < probability
     masked_env_ids = env_ids[mask]
 
     if len(masked_env_ids) == 0:
+        # If no environments sampled, disable any external wrench for all
+        # asset.set_external_force_and_torque(
+        #     forces=torch.zeros(0, 3),
+        #     torques=torch.zeros(0, 3),
+        #     env_ids=None,  # clear
+        #     body_ids=None,
+        # )
+        asset.permanent_wrench_composer.reset()
         return
 
-    # resolve number of bodies
-    num_bodies = len(asset_cfg.body_ids) if isinstance(asset_cfg.body_ids, list) else asset.num_bodies
+    # 2. Compute number of bodies
+    if isinstance(asset_cfg.body_ids, list):
+        body_ids = asset_cfg.body_ids
+    else:
+        body_ids = list(range(asset.num_bodies))
 
-    # sample random forces and torques
-    size = (len(masked_env_ids), num_bodies, 3)
-    force_range_list = [force_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
-    force_range = torch.tensor(force_range_list, device=asset.device)
-    forces = math_utils.sample_uniform(force_range[:, 0], force_range[:, 1], size, asset.device)
-    torque_range_list = [torque_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
-    torque_range = torch.tensor(torque_range_list, device=asset.device)
-    torques = math_utils.sample_uniform(torque_range[:, 0], torque_range[:, 1], size, asset.device)
-    # set the forces and torques into the buffers
-    # note: these are only applied when you call: `asset.write_data_to_sim()`
-    asset.set_external_force_and_torque(forces, torques, env_ids=masked_env_ids, body_ids=asset_cfg.body_ids)
+    num_bodies = len(body_ids)
 
+
+    #8th modification
+    # 3. Sample random forces
+    fr_list = [force_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
+    # force_tensor = torch.tensor(fr_list, device=asset.device)
+
+    # size = (len(masked_env_ids), num_bodies, 3)
+    # forces = math_utils.sample_uniform(
+    #     force_tensor[:, 0], force_tensor[:, 1], size, asset.device
+    # )
+
+    # # 4. Sample random torques
+    # tr_list = [torque_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
+    # torque_tensor = torch.tensor(tr_list, device=asset.device)
+    # torques = math_utils.sample_uniform(
+    #     torque_tensor[:, 0], torque_tensor[:, 1], size, asset.device
+    # )
+
+    # # 5. Apply via supported API
+    # asset.set_external_force_and_torque(
+    #     forces=forces,
+    #     torques=torques,
+    #     env_ids=masked_env_ids,
+    #     body_ids=body_ids,
+    # )
+
+    # Add these lines:
+
+    #     # 3. Sample random forces for each env & body (shape: N_envs x num_bodies x 3)
+    # # 3. Sample random forces for each env & body (shape: N_envs x num_bodies x 3)
+    # fr_list = [force_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
+    # force_min = torch.tensor([fr[0] for fr in fr_list], device=asset.device)
+    # force_max = torch.tensor([fr[1] for fr in fr_list], device=asset.device)
+
+    # # Expand min/max to broadcast over (N_envs x num_bodies)
+    # force_min = force_min.view(1, 1, 3).expand(len(masked_env_ids), num_bodies, 3)
+    # force_max = force_max.view(1, 1, 3).expand(len(masked_env_ids), num_bodies, 3)
+
+    # forces = math_utils.sample_uniform(
+    #     force_min, force_max, (len(masked_env_ids), num_bodies, 3), asset.device
+    # )
+
+    # # 4. Sample random torques similarly
+    # tr_list = [torque_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
+    # torque_min = torch.tensor([tr[0] for tr in tr_list], device=asset.device)
+    # torque_max = torch.tensor([tr[1] for tr in tr_list], device=asset.device)
+
+    # torque_min = torque_min.view(1, 1, 3).expand(len(masked_env_ids), num_bodies, 3)
+    # torque_max = torque_max.view(1, 1, 3).expand(len(masked_env_ids), num_bodies, 3)
+
+    # torques = math_utils.sample_uniform(
+    #     torque_min, torque_max, (len(masked_env_ids), num_bodies, 3), asset.device
+    # )
+
+    # # 5. Apply via supported API with correct shape
+    # asset.set_external_force_and_torque(
+    #     forces=forces,
+    #     torques=torques,
+    #     env_ids=masked_env_ids,
+    #     body_ids=body_ids,
+    # )
+
+    # # 6. Write to simulation
+    # asset.write_data_to_sim()
+
+
+        # 3. Prepare batched ranges for external forces
+    force_min = torch.tensor(
+        [force_range.get(k, (0.0, 0.0))[0] for k in ["x", "y", "z"]],
+        device=asset.device,
+    )
+    force_max = torch.tensor(
+        [force_range.get(k, (0.0, 0.0))[1] for k in ["x", "y", "z"]],
+        device=asset.device,
+    )
+
+    # reshape to (1, 1, 3) then expand to (N_envs, N_bodies, 3)
+    force_min = force_min.view(1, 1, 3).expand(len(masked_env_ids), num_bodies, 3)
+    force_max = force_max.view(1, 1, 3).expand(len(masked_env_ids), num_bodies, 3)
+
+    forces = math_utils.sample_uniform(
+        force_min, force_max, (len(masked_env_ids), num_bodies, 3), asset.device
+    )
+
+    # 4. Prepare batched ranges for torques
+    torque_min = torch.tensor(
+        [torque_range.get(k, (0.0, 0.0))[0] for k in ["x", "y", "z"]],
+        device=asset.device,
+    )
+    torque_max = torch.tensor(
+        [torque_range.get(k, (0.0, 0.0))[1] for k in ["x", "y", "z"]],
+        device=asset.device,
+    )
+
+    torque_min = torque_min.view(1, 1, 3).expand(len(masked_env_ids), num_bodies, 3)
+    torque_max = torque_max.view(1, 1, 3).expand(len(masked_env_ids), num_bodies, 3)
+
+    torques = math_utils.sample_uniform(
+        torque_min, torque_max, (len(masked_env_ids), num_bodies, 3), asset.device
+    )
+
+    # 5. Call the correct API with batched forces/torques
+    # asset.set_external_force_and_torque(
+    #     forces=forces,
+    #     torques=torques,
+    #     env_ids=masked_env_ids,
+    #     body_ids=body_ids,
+    # )
+
+    # # 6. Write them into the simulation
+    # asset.write_data_to_sim()
+
+    # Clear previous forces first
+    asset.permanent_wrench_composer.reset()
+
+    # Apply forces using new API
+    asset.permanent_wrench_composer.set_forces_and_torques(
+        forces=forces,
+        torques=torques,
+        body_ids=body_ids,
+        env_ids=masked_env_ids,
+        is_global=False,
+    )
 
 def randomize_rigid_body_mass_inertia(
     env: ManagerBasedEnv,

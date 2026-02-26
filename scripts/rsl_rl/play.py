@@ -120,11 +120,20 @@ def main():
             "encoder",
             ppo_runner.alg.encoder.num_input_dim,
         )
+
+        # 12nd modification
     # reset environment
-    obs, obs_dict = env.get_observations()
-    obs_history = obs_dict["observations"].get("obsHistory")
-    obs_history = obs_history.flatten(start_dim=1)
-    commands = obs_dict["observations"].get("commands") 
+    # obs, obs_dict = env.get_observations()
+    # obs_history = obs_dict["observations"].get("obsHistory")
+    # obs_history = obs_history.flatten(start_dim=1)
+    # commands = obs_dict["observations"].get("commands") 
+
+    obs_tensordict = env.get_observations()
+
+    obs = obs_tensordict["policy"]
+    obs_history = obs_tensordict["obsHistory"].flatten(start_dim=1)
+    commands = obs_tensordict["commands"]
+
     # simulate environment
     while simulation_app.is_running():
         # run everything in inference mode
@@ -133,11 +142,16 @@ def main():
             est = encoder(obs_history)
             actions = policy(torch.cat((est, obs, commands), dim=-1).detach())
             # env stepping
-            obs, _, _, infos = env.step(actions)
-            obs_history = infos["observations"].get("obsHistory")
-            obs_history = obs_history.flatten(start_dim=1)
-            commands = infos["observations"].get("commands") 
+            # obs, _, _, infos = env.step(actions)
+            # obs_history = infos["observations"].get("obsHistory")
+            # obs_history = obs_history.flatten(start_dim=1)
+            # commands = infos["observations"].get("commands") 
 
+
+            obs_tensordict, _, _, _ = env.step(actions)
+            obs = obs_tensordict["policy"]
+            obs_history = obs_tensordict["obsHistory"].flatten(start_dim=1)
+            commands = obs_tensordict["commands"]
     # close the simulator
     env.close()
 

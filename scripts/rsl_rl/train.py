@@ -7,6 +7,8 @@ import sys
 
 from isaaclab.app import AppLauncher
 
+
+
 # local imports
 import cli_args  # isort: skip
 
@@ -39,6 +41,10 @@ sys.argv = [sys.argv[0]] + hydra_args
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
+# Fourth Modification
+# adding below import:
+from isaaclab.utils.dict import class_to_dict
+
 """Rest everything follows."""
 
 import gymnasium as gym
@@ -57,7 +63,29 @@ from isaaclab.envs import (
     multi_agent_to_single_agent,
 )
 from isaaclab.utils.dict import print_dict
-from isaaclab.utils.io import dump_pickle, dump_yaml
+
+# Remove this part, Add below part
+# from isaaclab.utils.io import dump_pickle, dump_yaml
+
+# Replace missing helpers from older IsaacLab versions
+import pickle
+import yaml
+import os
+
+def dump_pickle(file_path, data):
+    """Fallback implementation of dump_pickle."""
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, "wb") as f:
+        pickle.dump(data, f)
+
+def dump_yaml(file_path, data, sort_keys=False):
+    """Fallback implementation of dump_yaml."""
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, "w") as f:
+        yaml.safe_dump(data, sort_keys=sort_keys)
+
+
+
 from isaaclab_tasks.utils import get_checkpoint_path, parse_env_cfg
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
@@ -138,11 +166,58 @@ def main():
     # set seed of the environment
     env.seed(agent_cfg.seed)
 
+
+
+    # fifth modification, remove below lines:
     # dump the configuration into log-directory
-    dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
-    dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
-    dump_pickle(os.path.join(log_dir, "params", "env.pkl"), env_cfg)
-    dump_pickle(os.path.join(log_dir, "params", "agent.pkl"), agent_cfg)
+    # dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
+    # dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
+    # dump_pickle(os.path.join(log_dir, "params", "env.pkl"), env_cfg)
+    # dump_pickle(os.path.join(log_dir, "params", "agent.pkl"), agent_cfg)
+
+
+    # Add these lines
+    # Convert config classes to plain dictionaries
+    env_cfg_dict = class_to_dict(env_cfg)
+    agent_cfg_dict = class_to_dict(agent_cfg)
+
+
+    import builtins
+
+    def make_yaml_safe(obj):
+        """ Recursively convert unsupported objects into safe types """
+        # Safe base types
+        if isinstance(obj, (str, bool, int, float, type(None))):
+            return obj
+
+        # Convert slices into a tuple representation
+        if isinstance(obj, slice):
+            return (obj.start, obj.stop, obj.step)
+
+        # Convert functions / callables into their qualified name
+        if callable(obj):
+            return getattr(obj, "__qualname__", str(obj))
+
+        # Convert dicts by recursing into keys/values
+        if isinstance(obj, dict):
+            return {str(k): make_yaml_safe(v) for k, v in obj.items()}
+
+        # Convert lists/tuples/sets into a list
+        if isinstance(obj, (list, tuple, set)):
+            return [make_yaml_safe(v) for v in obj]
+
+        # Fallback for other objects: stringify them
+        return str(obj)
+
+    # Convert config classes to plain dictionaries
+    safe_env_cfg = make_yaml_safe(env_cfg_dict)
+    safe_agent_cfg = make_yaml_safe(agent_cfg_dict)
+
+    dump_yaml(os.path.join(log_dir, "params", "env.yaml"), safe_env_cfg)
+    dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), safe_agent_cfg)
+
+    dump_pickle(os.path.join(log_dir, "params", "env.pkl"), env_cfg_dict)
+    dump_pickle(os.path.join(log_dir, "params", "agent.pkl"), agent_cfg_dict)
 
     # run training
     runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)

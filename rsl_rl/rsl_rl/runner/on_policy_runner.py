@@ -52,7 +52,18 @@ class OnPolicyRunner:
         self.policy_cfg = train_cfg["policy"]
         self.device = device
         self.env = env
-        obs, extras = self.env.get_observations()   
+        #Second modification:
+        #remove belwo line:
+        #obs, extras = self.env.get_observations()   
+        # Add below lines:
+
+        # IsaacLab 2.3 returns a dict of groups instead of a (obs, extras) tuple
+        obs_tensordict = self.env.get_observations()
+        obs = obs_tensordict["policy"]              # actor observations
+        extras = {"observations": obs_tensordict}    # store whole dict
+
+
+
         self.num_obs = obs.shape[1]
         self.obs_history_len = self.alg_cfg.pop("obs_history_len")
         assert "commands" in extras["observations"], f"Commands not found in observations"
@@ -141,7 +152,17 @@ class OnPolicyRunner:
             self.env.episode_length_buf = torch.randint_like(
                 self.env.episode_length_buf, high=int(self.env.max_episode_length)
             )
-        obs, extras = self.env.get_observations()
+
+        # third modification:
+        #remove below line 
+        #obs, extras = self.env.get_observations()
+        # and add belo lines
+        obs_tensordict = self.env.get_observations()
+        obs = obs_tensordict["policy"]              # actor observations
+        extras = {"observations": obs_tensordict}    # store whole dict
+
+
+
         obs_history = extras["observations"].get("obsHistory")
         obs_history = obs_history.flatten(start_dim=1)
         critic_obs = extras["observations"].get("critic")
@@ -173,22 +194,33 @@ class OnPolicyRunner:
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
                     actions = self.alg.act(obs, obs_history, commands, critic_obs)
+
+                    # 7th patch, remove these line:
                     # add critic_obs_buf to step returns, make sure it updates in every for loop
-                    (obs, rewards, dones, infos) = self.env.step(actions)
+                    # (obs, rewards, dones, infos) = self.env.step(actions)
 
-                    critic_obs = infos["observations"]["critic"]
-                    obs_history = infos["observations"]["obsHistory"].flatten(start_dim=1)
-                    commands = infos["observations"]["commands"]
+                    # critic_obs = infos["observations"]["critic"]
+                    # obs_history = infos["observations"]["obsHistory"].flatten(start_dim=1)
+                    # commands = infos["observations"]["commands"]
 
-                    # critic_obs = obs
-                    obs, obs_history, commands, critic_obs, rewards, dones = (
-                        obs.to(self.device),
-                        obs_history.to(self.device),
-                        commands.to(self.device),
-                        critic_obs.to(self.device), # critic_obs.to(self.device),
-                        rewards.to(self.device),
-                        dones.to(self.device),
-                    )
+                    # Add these lines:
+
+                    # Correct call — use wrapper, NOT .env.step()
+                    (obs_tensordict, rewards, dones, infos) = self.env.step(actions)
+
+                    # Extract tensors from TensorDict
+                    obs = obs_tensordict["policy"]
+                    critic_obs = obs_tensordict["critic"]
+                    obs_history = obs_tensordict["obsHistory"].flatten(start_dim=1)
+                    commands = obs_tensordict["commands"]
+
+                    # Move to device
+                    obs = obs.to(self.device)
+                    critic_obs = critic_obs.to(self.device)
+                    obs_history = obs_history.to(self.device)
+                    commands = commands.to(self.device)
+                    rewards = rewards.to(self.device)
+                    dones = dones.to(self.device)
                     self.alg.process_env_step(rewards, dones, infos, obs)
 
                     if self.log_dir is not None:
